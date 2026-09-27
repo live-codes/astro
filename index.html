@@ -1,0 +1,354 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>@live-codes/astro — dev harness</title>
+
+    <!--
+      Framework runtimes are shared, not bundled: the SSR renderer, the compiled
+      components and the client hydration all resolve `react` through this map,
+      so they all use a single instance. LiveCodes supplies the equivalent.
+    -->
+    <script type="importmap">
+      {
+        "imports": {
+          "react": "https://esm.sh/react@19.3.0",
+          "react/": "https://esm.sh/react@19.3.0/",
+          "react-dom": "https://esm.sh/react-dom@19.3.0",
+          "react-dom/": "https://esm.sh/react-dom@19.3.0/"
+        }
+      }
+    </script>
+
+    <style>
+      :root {
+        color-scheme: light dark;
+        --bg: #1b1d21;
+        --panel: #24262b;
+        --border: #383b42;
+        --text: #e8e8ea;
+        --muted: #9aa0aa;
+        --accent: #ff5d01;
+      }
+      * { box-sizing: border-box; }
+      html, body { height: 100%; margin: 0; }
+      body {
+        font: 13px/1.5 system-ui, -apple-system, Segoe UI, sans-serif;
+        background: var(--bg);
+        color: var(--text);
+        display: flex;
+        flex-direction: column;
+      }
+      header {
+        display: flex;
+        align-items: center;
+        gap: 12px;
+        padding: 8px 12px;
+        border-bottom: 1px solid var(--border);
+        background: var(--panel);
+      }
+      header h1 { font-size: 13px; margin: 0; font-weight: 600; }
+      header h1 span { color: var(--accent); }
+      header .spacer { flex: 1; }
+      #status { color: var(--muted); font-variant-numeric: tabular-nums; }
+      button, select {
+        font: inherit;
+        color: var(--text);
+        background: #333740;
+        border: 1px solid var(--border);
+        border-radius: 6px;
+        padding: 5px 14px;
+        cursor: pointer;
+      }
+      button:hover, select:hover { background: #3d424c; }
+      button:disabled { opacity: 0.5; cursor: default; }
+      #tabs {
+        display: flex;
+        gap: 4px;
+        padding: 6px 8px;
+        border-bottom: 1px solid var(--border);
+        background: #1f2125;
+        overflow: auto;
+      }
+      #tabs button {
+        padding: 3px 10px;
+        font: 12px/1.5 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        background: transparent;
+        border-color: transparent;
+        white-space: nowrap;
+      }
+      #tabs button[aria-selected="true"] {
+        background: #333740;
+        border-color: var(--border);
+      }
+      main { flex: 1; display: flex; min-height: 0; }
+      #panes { width: 50%; min-width: 0; display: flex; flex-direction: column; }
+      #editor {
+        flex: 1;
+        min-height: 0;
+        resize: none;
+        border: 0;
+        border-right: 1px solid var(--border);
+        outline: none;
+        padding: 12px;
+        background: #1f2125;
+        color: var(--text);
+        font: 13px/1.6 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+        tab-size: 2;
+      }
+      #preview-wrap { width: 50%; min-width: 0; display: flex; flex-direction: column; }
+      #preview { flex: 1; border: 0; background: #fff; }
+      #errors {
+        padding: 8px 12px;
+        border-top: 1px solid var(--border);
+        background: #2a1d1d;
+        color: #ffb4a8;
+        font: 12px/1.5 ui-monospace, Menlo, Consolas, monospace;
+        white-space: pre-wrap;
+        max-height: 30%;
+        overflow: auto;
+        display: none;
+      }
+      #errors.show { display: block; }
+      footer {
+        padding: 6px 12px;
+        border-top: 1px solid var(--border);
+        color: var(--muted);
+        font-size: 11px;
+      }
+    </style>
+  </head>
+  <body>
+    <header>
+      <h1><span>@live-codes/astro</span> — dev harness</h1>
+      <div class="spacer"></div>
+      <span id="status">loading compiler…</span>
+      <button id="run" disabled>Run</button>
+    </header>
+
+    <div id="tabs"></div>
+
+    <main>
+      <div id="panes">
+        <textarea id="editor" spellcheck="false" autocapitalize="off" autocomplete="off"></textarea>
+      </div>
+
+      <div id="preview-wrap">
+        <iframe id="preview" sandbox="allow-scripts allow-same-origin allow-modals" title="Preview"></iframe>
+      </div>
+    </main>
+
+    <pre id="errors"></pre>
+
+    <footer>
+      Compiles and renders entirely in the browser via <code>@live-codes/astro</code> — no server.
+      Supports multiple files, nested <code>.astro</code> components and React islands
+      (<code>client:load</code> / <code>client:only</code>). Not yet: other frameworks, npm imports
+      resolved without an import map, external scripts.
+    </footer>
+
+    <!-- The built compiler glue (IIFE) exposes `self.astroCompiler`. -->
+    <script src="./dist/astro-compiler.js"></script>
+    <script type="module">
+      const url = (path) => new URL(path, location.href).href;
+      const WASM_URL = url('./dist/astro.wasm');
+      const RUNTIME_URL = url('./dist/astro-runtime.js');
+      const REACT_SERVER_URL = url('./dist/astro-react-server.js');
+      const REACT_CLIENT_URL = url('./dist/astro-react-client.js');
+
+      // Kept in sync with the host import map above; also injected into the preview.
+      const IMPORTS = {
+        react: 'https://esm.sh/react@19.3.0',
+        'react/': 'https://esm.sh/react@19.3.0/',
+        'react-dom': 'https://esm.sh/react-dom@19.3.0',
+        'react-dom/': 'https://esm.sh/react-dom@19.3.0/',
+      };
+
+      const FRAMEWORKS = [
+        {
+          name: '@astrojs/react',
+          server: REACT_SERVER_URL,
+          client: REACT_CLIENT_URL,
+          extensions: ['.jsx', '.tsx'],
+          jsxImportSource: 'react',
+        },
+      ];
+
+      const PAGE = 'src/pages/index.astro';
+      const files = new Map([
+        [
+          PAGE,
+          `---
+import Badge from '../components/Badge.astro';
+import Counter from '../components/Counter.jsx';
+const title = "Astro islands";
+const renderedAt = new Date().toLocaleTimeString();
+---
+
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{title}</title>
+    <style>
+      body { font: 16px/1.6 system-ui, sans-serif; margin: 2rem; color: #222; }
+      h1 { color: #ff5d01; margin-top: 0; }
+      .note { color: #888; font-size: 0.85rem; }
+      .badge { background: #ffeddf; border: 1px solid #ffd0b0; border-radius: 999px; padding: 2px 10px; font-size: 0.8rem; }
+    </style>
+  </head>
+  <body>
+    <h1>Hello, {title}! <Badge label="nested .astro" /></h1>
+    <p class="note">Server-rendered at {renderedAt}</p>
+    <Counter client:load initial={2} label="Count" />
+    <Counter client:only="react" initial={10} label="Client only" />
+  </body>
+</html>
+`,
+        ],
+        [
+          'src/components/Badge.astro',
+          `---
+const { label } = Astro.props;
+---
+<span class="badge">{label}</span>
+`,
+        ],
+        [
+          'src/components/Counter.jsx',
+          `import { useState } from 'react';
+
+export default function Counter({ initial = 0, label = 'Count' }) {
+  const [count, setCount] = useState(initial);
+  return (
+    <p className="counter">
+      <button onClick={() => setCount((value) => value - 1)}>−</button>
+      <strong>{label}: {count}</strong>
+      <button onClick={() => setCount((value) => value + 1)}>+</button>
+    </p>
+  );
+}
+`,
+        ],
+      ]);
+
+      let active = null;
+
+      const $editor = document.getElementById('editor');
+      const $tabs = document.getElementById('tabs');
+      const $preview = document.getElementById('preview');
+      const $errors = document.getElementById('errors');
+      const $status = document.getElementById('status');
+      const $run = document.getElementById('run');
+
+      const astro = globalThis.astroCompiler;
+
+      let running = false;
+      let queued = false;
+
+      function showErrors(list) {
+        if (!list.length) {
+          $errors.classList.remove('show');
+          $errors.textContent = '';
+          return;
+        }
+        $errors.classList.add('show');
+        $errors.textContent = list.join('\n\n');
+      }
+
+      function renderTabs() {
+        $tabs.replaceChildren(
+          ...[...files.keys()].map((path) => {
+            const tab = document.createElement('button');
+            tab.textContent = path;
+            tab.setAttribute('aria-selected', String(path === active));
+            tab.addEventListener('click', () => selectFile(path));
+            return tab;
+          }),
+        );
+      }
+
+      function selectFile(path) {
+        if (active !== null) files.set(active, $editor.value);
+        active = path;
+        $editor.value = files.get(path);
+        renderTabs();
+      }
+
+      async function run() {
+        if (running) {
+          queued = true;
+          return;
+        }
+        running = true;
+        $run.disabled = true;
+        const started = performance.now();
+        try {
+          files.set(active, $editor.value);
+          const result = await astro.renderAstroToHTML(files.get(PAGE), {
+            runtimeURL: RUNTIME_URL,
+            filename: PAGE,
+            files: Object.fromEntries([...files].filter(([path]) => path !== PAGE)),
+            frameworks: FRAMEWORKS,
+            imports: IMPORTS,
+          });
+          if (result.info.errors.length) {
+            showErrors(result.info.errors);
+            $status.textContent = `compile error (${Math.round(performance.now() - started)}ms)`;
+            return;
+          }
+          $preview.srcdoc = result.code;
+          showErrors([]);
+          $status.textContent = `${result.info.css.length} style block(s) · ${Math.round(
+            performance.now() - started,
+          )}ms`;
+        } catch (error) {
+          console.error(error);
+          showErrors([String(error?.stack ?? error)]);
+          $status.textContent = 'failed';
+        } finally {
+          running = false;
+          $run.disabled = false;
+          if (queued) {
+            queued = false;
+            run();
+          }
+        }
+      }
+
+      selectFile(PAGE);
+      renderTabs();
+
+      $editor.addEventListener('input', () => {
+        clearTimeout($editor._t);
+        $editor._t = setTimeout(run, 400);
+      });
+      $editor.addEventListener('keydown', (event) => {
+        if (event.key === 'Tab') {
+          event.preventDefault();
+          const { selectionStart: s, selectionEnd: e, value } = $editor;
+          $editor.value = `${value.slice(0, s)}  ${value.slice(e)}`;
+          $editor.selectionStart = $editor.selectionEnd = s + 2;
+        }
+        if ((event.ctrlKey || event.metaKey) && event.key === 'Enter') {
+          event.preventDefault();
+          run();
+        }
+      });
+      $run.addEventListener('click', run);
+
+      astro
+        .initialize({ wasmURL: WASM_URL })
+        .then(() => {
+          $run.disabled = false;
+          $status.textContent = 'ready';
+          return run();
+        })
+        .catch((error) => {
+          console.error(error);
+          showErrors([`Could not load the Astro compiler:\n${error?.message ?? error}`]);
+          $status.textContent = 'compiler failed to load';
+        });
+    </script>
+  </body>
+</html>

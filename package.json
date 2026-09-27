@@ -1,0 +1,42 @@
+{
+  "name": "@live-codes/astro",
+  "version": "0.1.0",
+  "description": "Astro compiler and renderer that run in the browser, for use in livecodes.io",
+  "author": "Hatem Hosny",
+  "license": "MIT",
+  "repository": {
+    "url": "https://github.com/live-codes/astro"
+  },
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "exports": {
+    "./compiler": "./dist/astro-compiler.js",
+    "./runtime": "./dist/astro-runtime.js",
+    "./react/server": "./dist/astro-react-server.js",
+    "./react/client": "./dist/astro-react-client.js",
+    "./astro.wasm": "./dist/astro.wasm"
+  },
+  "scripts": {
+    "clean": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "build": "node ./scripts/build.js",
+    "prebuild": "npm run clean",
+    "typecheck": "tsc --noEmit",
+    "start": "live-server dist --port=8082 --no-browser --cors"
+  },
+  "dependencies": {
+    "@astrojs/compiler": "4.0.0",
+    "astro": "7.2.0"
+  },
+  "devDependencies": {
+    "@astrojs/react": "^6.0.6",
+    "esbuild": "0.25.12",
+    "esbuild-plugin-polyfill-node": "0.3.0",
+    "live-server": "1.1.0",
+    "react": "^19.3.0",
+    "react-dom": "^19.3.0",
+    "sucrase": "^3.35.1",
+    "typescript": "^7.0.2"
+  }
+}
